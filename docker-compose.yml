@@ -1,0 +1,19 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: hackathon-db
+    platform: linux/amd64
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: hackathon_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./db:/docker-entrypoint-initdb.d # Auto-init schema
+    command: --default-authentication-plugin=mysql_native_password
+
+volumes:
+  db-data:
