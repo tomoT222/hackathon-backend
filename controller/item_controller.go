@@ -29,6 +29,13 @@ func (c *ItemController) GetItems(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type CreateItemRequest struct {
+	Name        string `json:"name"`
+	Price       int    `json:"price"`
+	Description string `json:"description"`
+	UserID      string `json:"user_id"`
+}
+
 func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
     // CORS headers
     w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -53,9 +60,26 @@ func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
              return
         }
         json.NewEncoder(w).Encode(items)
+    case "POST":
+        var req CreateItemRequest
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+        }
+        item, err := c.usecase.CreateItem(req.Name, req.Price, req.Description, req.UserID)
+        if err != nil {
+             http.Error(w, err.Error(), http.StatusInternalServerError)
+             return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(item)
     default:
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
     }
+}
+
+type BuyRequest struct {
+    UserID string `json:"user_id"`
 }
 
 func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request) {
@@ -69,13 +93,42 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
         return
     }
 
-    // path: /items/{id}
+    // path: /items/{id} or /items/{id}/buy
     parts := strings.Split(r.URL.Path, "/")
     if len(parts) < 3 {
         http.Error(w, "Invalid URL", http.StatusBadRequest)
         return
     }
-    id := parts[len(parts)-1] 
+    id := parts[2]
+
+    // Check if it is a buy request
+    if len(parts) >= 4 && parts[3] == "buy" {
+        if r.Method != "PUT" {
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+            return
+        }
+        var req BuyRequest
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+        }
+        item, err := c.usecase.PurchaseItem(id, req.UserID)
+        if err != nil {
+             if err.Error() == "item not found" {
+                 http.Error(w, err.Error(), http.StatusNotFound)
+                 return
+             }
+             if err.Error() == "item already sold" {
+                 http.Error(w, err.Error(), http.StatusConflict)
+                 return
+             }
+             http.Error(w, err.Error(), http.StatusInternalServerError)
+             return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(item)
+        return
+    }
 
     switch r.Method {
     case "GET":

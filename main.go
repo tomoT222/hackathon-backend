@@ -33,9 +33,14 @@ func main() {
 	itemUsecase := usecase.NewItemUsecase(itemRepo)
 	itemController := controller.NewItemController(itemUsecase)
 
+	userRepo := dao.NewUserRepository(db)
+	userUsecase := usecase.NewUserUsecase(userRepo)
+	userController := controller.NewUserController(userUsecase)
+
 	// 3. Routing
 	http.HandleFunc("/items", itemController.HandleItems)
 	http.HandleFunc("/items/", itemController.HandleItemDetail)
+	http.HandleFunc("/register", userController.Register)
 
 	// 4. Start Server
 	port := os.Getenv("PORT")

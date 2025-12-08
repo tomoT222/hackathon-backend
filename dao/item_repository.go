@@ -74,3 +74,15 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	
 	return &item, nil
 }
+
+func (r *ItemRepository) Insert(item *model.Item) error {
+	query := `INSERT INTO items (id, name, price, description, user_id, status) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status)
+	return err
+}
+
+func (r *ItemRepository) Update(item *model.Item) error {
+	query := `UPDATE items SET name=?, price=?, description=?, user_id=?, buyer_id=?, status=? WHERE id=?`
+	_, err := r.db.Exec(query, item.Name, item.Price, item.Description, item.UserID, item.BuyerID, item.Status, item.ID)
+	return err
+}
