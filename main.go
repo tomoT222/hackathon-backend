@@ -1,38 +1,49 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
+	"fmt"
+	"hackathon-backend/controller"
+	"hackathon-backend/dao"
+	"hackathon-backend/usecase"
 	"log"
 	"net/http"
+	"os"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
-	// CORS middleware
-	corsMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-
-			next(w, r)
-		}
+	// 1. DB Connection
+	// user:password@tcp(127.0.0.1:3306)/hackathon_db
+	dsn := "user:password@tcp(127.0.0.1:3306)/hackathon_db?parseTime=true&loc=Local"
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer db.Close()
 
-	// Health check handler
-	healthHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": "Hello from Go Backend!"})
+	if err := db.Ping(); err != nil {
+		log.Fatal("Failed to connect to DB:", err)
 	}
+	fmt.Println("Connected to Database!")
 
-	http.HandleFunc("/health", corsMiddleware(healthHandler))
+	// 2. Dependency Injection
+	itemRepo := dao.NewItemRepository(db)
+	itemUsecase := usecase.NewItemUsecase(itemRepo)
+	itemController := controller.NewItemController(itemUsecase)
 
-	log.Println("Server starting on port 8080...")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	// 3. Routing
+	http.HandleFunc("/items", itemController.HandleItems)
+	http.HandleFunc("/items/", itemController.HandleItemDetail)
+
+	// 4. Start Server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	fmt.Printf("Server starting on port %s...\n", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
 }
