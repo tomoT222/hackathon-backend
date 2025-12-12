@@ -16,7 +16,25 @@ import (
 func main() {
 	// 1. DB Connection
 	// user:password@tcp(127.0.0.1:3306)/hackathon_db
-	dsn := "user:password@tcp(127.0.0.1:3306)/hackathon_db?parseTime=true&loc=Local"
+	// 1. DB Connection
+	user := os.Getenv("MYSQL_USER")
+	if user == "" {
+		user = "user"
+	}
+	pwd := os.Getenv("MYSQL_PWD")
+	if pwd == "" {
+		pwd = "password"
+	}
+	host := os.Getenv("MYSQL_HOST")
+	if host == "" {
+		host = "tcp(127.0.0.1:3306)"
+	}
+	dbName := os.Getenv("MYSQL_DATABASE")
+	if dbName == "" {
+		dbName = "hackathon_db"
+	}
+
+	dsn := fmt.Sprintf("%s:%s@%s/%s?parseTime=true&loc=Local", user, pwd, host, dbName)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
