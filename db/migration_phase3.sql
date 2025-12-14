@@ -1,0 +1,28 @@
+USE hackathon_db;
+
+ALTER TABLE items ADD COLUMN IF NOT EXISTS views_count INT DEFAULT 0;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS ai_negotiation_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS min_price INT;
+
+CREATE TABLE IF NOT EXISTS messages (
+    id CHAR(26) PRIMARY KEY COMMENT 'ULID',
+    item_id CHAR(26) NOT NULL,
+    sender_id CHAR(26) NOT NULL,
+    content TEXT NOT NULL,
+    is_ai_response BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS negotiation_logs (
+    id CHAR(26) PRIMARY KEY COMMENT 'ULID',
+    item_id CHAR(26) NOT NULL,
+    user_id CHAR(26) NOT NULL COMMENT 'Buyer ID',
+    proposed_price INT NOT NULL,
+    ai_decision VARCHAR(50) NOT NULL COMMENT 'ACCEPT, REJECT, COUNTER',
+    ai_reasoning TEXT,
+    log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);

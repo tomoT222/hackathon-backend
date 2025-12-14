@@ -50,9 +50,15 @@ func (r *ItemRepository) GetAll() ([]model.Item, error) {
 	return items, nil
 }
 
+func (r *ItemRepository) IncrementViewCount(id string) error {
+	_, err := r.db.Exec("UPDATE items SET views_count = views_count + 1 WHERE id = ?", id)
+	return err
+}
+
 func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
+	// Select with new columns
 	query := `
-		SELECT id, name, price, description, user_id, buyer_id, status 
+		SELECT id, name, price, description, user_id, buyer_id, status, views_count, ai_negotiation_enabled, min_price, created_at 
 		FROM items 
 		WHERE id = ?
 	`
@@ -60,8 +66,9 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	
 	var item model.Item
 	var buyerID sql.NullString
+	var minPrice sql.NullInt64
 	
-	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &item.ViewsCount, &item.AINegotiationEnabled, &minPrice, &item.CreatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Not found
 		}
@@ -71,13 +78,17 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	if buyerID.Valid {
 		item.BuyerID = &buyerID.String
 	}
+	if minPrice.Valid {
+		val := int(minPrice.Int64)
+		item.MinPrice = &val
+	}
 	
 	return &item, nil
 }
 
 func (r *ItemRepository) Insert(item *model.Item) error {
-	query := `INSERT INTO items (id, name, price, description, user_id, status) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status)
+	query := `INSERT INTO items (id, name, price, description, user_id, status, ai_negotiation_enabled, min_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status, item.AINegotiationEnabled, item.MinPrice)
 	return err
 }
 

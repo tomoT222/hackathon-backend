@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"hackathon-backend/controller"
 	"hackathon-backend/dao"
+	"hackathon-backend/pkg/gemini"
 	"hackathon-backend/usecase"
 	"log"
 	"net/http"
@@ -14,8 +16,6 @@ import (
 )
 
 func main() {
-	// 1. DB Connection
-	// user:password@tcp(127.0.0.1:3306)/hackathon_db
 	// 1. DB Connection
 	user := os.Getenv("MYSQL_USER")
 	if user == "" {
@@ -46,21 +46,41 @@ func main() {
 	}
 	fmt.Println("Connected to Database!")
 
-	// 2. Dependency Injection
+	// 2. Gemini Client (API Key)
+    apiKey := os.Getenv("GEMINI_API_KEY")
+    
+	var geminiClient *gemini.Client
+	if apiKey != "" {
+		ctx := context.Background()
+		client, err := gemini.NewClient(ctx, apiKey)
+		if err != nil {
+			log.Printf("Failed to init Gemini Client: %v", err)
+		} else {
+			geminiClient = client
+			fmt.Println("Gemini Client Initialized!")
+		}
+	} else {
+		fmt.Println("GEMINI_API_KEY not set. Smart-Nego will be disabled.")
+	}
+
+	// 3. Dependency Injection
 	itemRepo := dao.NewItemRepository(db)
-	itemUsecase := usecase.NewItemUsecase(itemRepo)
+	msgRepo := dao.NewMessageRepository(db)
+	
+	itemUsecase := usecase.NewItemUsecase(itemRepo, msgRepo, geminiClient)
 	itemController := controller.NewItemController(itemUsecase)
 
 	userRepo := dao.NewUserRepository(db)
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	userController := controller.NewUserController(userUsecase)
 
-	// 3. Routing
+	// 4. Routing
 	http.HandleFunc("/items", itemController.HandleItems)
-	http.HandleFunc("/items/", itemController.HandleItemDetail)
+	http.HandleFunc("/items/", itemController.HandleItemDetail) // Handles /buy and /messages
+    http.HandleFunc("/messages/", itemController.HandleMessages) // Handles /messages/{id}/approve
 	http.HandleFunc("/register", userController.Register)
 
-	// 4. Start Server
+	// 5. Start Server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

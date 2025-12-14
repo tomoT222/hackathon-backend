@@ -30,14 +30,15 @@ func (c *ItemController) GetItems(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreateItemRequest struct {
-	Name        string `json:"name"`
-	Price       int    `json:"price"`
-	Description string `json:"description"`
-	UserID      string `json:"user_id"`
+	Name                 string `json:"name"`
+	Price                int    `json:"price"`
+	Description          string `json:"description"`
+	UserID               string `json:"user_id"`
+	AINegotiationEnabled bool   `json:"ai_negotiation_enabled"`
+	MinPrice             *int   `json:"min_price"`
 }
 
 func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
-    // CORS headers
     w.Header().Set("Access-Control-Allow-Origin", "*")
     w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
     w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -66,7 +67,7 @@ func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
              http.Error(w, err.Error(), http.StatusBadRequest)
              return
         }
-        item, err := c.usecase.CreateItem(req.Name, req.Price, req.Description, req.UserID)
+        item, err := c.usecase.CreateItem(req.Name, req.Price, req.Description, req.UserID, req.AINegotiationEnabled, req.MinPrice)
         if err != nil {
              http.Error(w, err.Error(), http.StatusInternalServerError)
              return
@@ -82,8 +83,12 @@ type BuyRequest struct {
     UserID string `json:"user_id"`
 }
 
+type SendMessageRequest struct {
+    UserID  string `json:"user_id"`
+    Content string `json:"content"`
+}
+
 func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request) {
-    // CORS headers
     w.Header().Set("Access-Control-Allow-Origin", "*")
     w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
     w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -93,7 +98,7 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
         return
     }
 
-    // path: /items/{id} or /items/{id}/buy
+    // path: /items/{id} or /items/{id}/buy or /items/{id}/messages
     parts := strings.Split(r.URL.Path, "/")
     if len(parts) < 3 {
         http.Error(w, "Invalid URL", http.StatusBadRequest)
@@ -130,6 +135,48 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
         return
     }
 
+    // Check if it is a messages request
+    if len(parts) >= 4 && parts[3] == "messages" {
+        if r.Method == "POST" {
+            var req SendMessageRequest
+            if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+                http.Error(w, err.Error(), http.StatusBadRequest)
+                return
+            }
+            userMsg, aiMsg, err := c.usecase.SendMessage(id, req.UserID, req.Content)
+            if err != nil {
+                 http.Error(w, err.Error(), http.StatusInternalServerError)
+                 return
+            }
+            // Return latest message (or both)
+             w.Header().Set("Content-Type", "application/json")
+             response := map[string]interface{}{
+                 "user_message": userMsg,
+                 "ai_message": aiMsg, // Can be nil
+             }
+            json.NewEncoder(w).Encode(response)
+            return
+        } else if r.Method == "GET" {
+             // Extract userID query param for filtering
+             userID := r.URL.Query().Get("user_id")
+             msgs, err := c.usecase.GetMessages(id, userID)
+             if err != nil {
+                 http.Error(w, err.Error(), http.StatusInternalServerError)
+                 return
+             }
+             w.Header().Set("Content-Type", "application/json")
+             if msgs == nil {
+                 w.Write([]byte(`{"messages": []}`))
+                 return
+             }
+             json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs})
+             return
+        } else {
+             http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+             return
+        }
+    }
+
     switch r.Method {
     case "GET":
         item, err := c.usecase.GetItemByID(id)
@@ -143,7 +190,65 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
         }
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(item)
+    case "DELETE":
+        // Extract user_id from query or header? For MPV, query param or body to verify owner
+        // Since DELETE body is discouraged, let's use Query Param `user_id` or Header `X-User-ID`
+        // Let's use Query Param for simplicity as we used it elsewhere
+        userID := r.URL.Query().Get("user_id")
+        if userID == "" {
+             http.Error(w, "user_id required", http.StatusUnauthorized)
+             return
+        }
+        err := c.usecase.DeleteItem(id, userID)
+        if err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+        }
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte(`{"status": "deleted"}`))
     default:
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    }
+}
+
+func (c *ItemController) HandleMessages(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+    w.Header().Set("Access-Control-Allow-Methods", "POST, PUT, OPTIONS")
+    w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+    if r.Method == "OPTIONS" {
+        w.WriteHeader(http.StatusOK)
+        return
+    }
+
+    // path: /messages/{id}/approve
+    parts := strings.Split(r.URL.Path, "/")
+    if len(parts) < 4 {
+        http.Error(w, "Invalid URL", http.StatusBadRequest)
+        return
+    }
+    msgID := parts[2]
+    action := parts[3]
+
+    if action == "approve" && r.Method == "PUT" {
+        // Need userID to verify permission (conceptually)
+        // For now, we trust the caller has permission (Client side checks + knowing the draft ID)
+        var req struct {
+            UserID string `json:"user_id"`
+        }
+         if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+         }
+
+        err := c.usecase.ApproveMessage(msgID, req.UserID)
+        if err != nil {
+             http.Error(w, err.Error(), http.StatusInternalServerError)
+             return
+        }
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte(`{"status": "approved"}`))
+    } else {
+        http.Error(w, "Not found or method not allowed", http.StatusNotFound)
     }
 }

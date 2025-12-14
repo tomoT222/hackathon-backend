@@ -18,6 +18,13 @@ func NewUserUsecase(repo *dao.UserRepository) *UserUsecase {
 }
 
 func (u *UserUsecase) RegisterUser(name, email string) (*model.User, error) {
+    // 1. Check if user exists (Login)
+    existingUser, err := u.repo.GetByEmail(email)
+    if err == nil && existingUser != nil {
+        return existingUser, nil
+    }
+
+	// 2. Register New User
 	// Generate ULID
 	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
 	id := ulid.MustNew(ulid.Now(), entropy).String()
