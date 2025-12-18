@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS items (
     min_price INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    image_url TEXT
+    image_url LONGTEXT
 );
 
 -- Messages table (DM/Comments)
@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS negotiation_logs (
     item_id VARCHAR(128) NOT NULL,
     user_id VARCHAR(128) NOT NULL COMMENT 'Buyer ID',
     proposed_price INT NOT NULL,
-    ai_decision VARCHAR(50) NOT NULL COMMENT 'ACCEPT, REJECT, COUNTER',
+    ai_decision VARCHAR(50) NOT NULL COMMENT 'ACCEPT, REJECT, COUNTER, ANSWER',
+    counter_price INT COMMENT 'Counter offer price if any',
     ai_reasoning TEXT,
     log_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,

@@ -19,7 +19,8 @@ type NegotiationLog struct {
 	ItemID        string    `json:"item_id"`
 	UserID        string    `json:"user_id"`
 	ProposedPrice int       `json:"proposed_price"`
-	AIDecision    string    `json:"ai_decision"` // ACCEPT, REJECT, COUNTER
+	AIDecision    string    `json:"ai_decision"` // ACCEPT, REJECT, COUNTER, ANSWER
+	CounterPrice  int       `json:"counter_price"`
 	AIReasoning   string    `json:"ai_reasoning"`
 	LogTime       time.Time `json:"log_time"`
 }

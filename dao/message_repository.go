@@ -61,7 +61,7 @@ func (r *MessageRepository) ApproveMessage(messageID string) error {
 }
 
 func (r *MessageRepository) CreateNegotiationLog(log *model.NegotiationLog) error {
-	query := `INSERT INTO negotiation_logs (id, item_id, user_id, proposed_price, ai_decision, ai_reasoning, log_time) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, log.ID, log.ItemID, log.UserID, log.ProposedPrice, log.AIDecision, log.AIReasoning, log.LogTime)
+	query := `INSERT INTO negotiation_logs (id, item_id, user_id, proposed_price, ai_decision, counter_price, ai_reasoning, log_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, log.ID, log.ItemID, log.UserID, log.ProposedPrice, log.AIDecision, log.CounterPrice, log.AIReasoning, log.LogTime)
 	return err
 }

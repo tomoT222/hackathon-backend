@@ -166,21 +166,65 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 		// Calculate Duration
 		daysListed := int(time.Since(item.CreatedAt).Hours() / 24)
 
-		
+		// Fetch History
+		previousMsgs, err := u.msgRepo.GetMessagesByItemID(itemID)
+		var history []gemini.MessageHistory
+		if err == nil {
+			for _, m := range previousMsgs {
+				role := "Buyer"
+				if m.SenderID == item.UserID {
+					role = "Seller"
+				}
+				history = append(history, gemini.MessageHistory{
+					Sender:  role,
+					Content: m.Content,
+				})
+			}
+		}
+		// Add current user message to history effectively (the prompt treats it separately as "Current Message", but good conceptually)
+		// Actually prompt separates it. So we pass history EXCLUDING current message if we pulled from DB?
+		// Wait, we just inserted userMsg into DB at step 1.
+		// So GetMessagesByItemID will include the current message.
+		// We should probably filter it out or just rely on the prompt to see it in history?
+		// The prompt has a separate "Current Buyer Message" section.
+		// To avoid duplication, let's exclude the very last message if it matches.
+		// Or simpler: The Prompt says "Conversation History" and "Current Buyer Message".
+		// If the history includes the current message, the AI sees it twice.
+		// Let's filter slightly.
+		// Actually, `userMsg` is separate. `previousMsgs` logic depends on transaction isolation, but usually it might trigger read-your-writes.
+		// Let's assume `previousMsgs` contains it.
+		// Let's pass the raw list but handle the "Current Message" distinctly in prompt.
+		// Refined approach: Don't fetch the just-inserted message if possible, or filter it.
+		// Since we generated `userMsgID` and inserted it, we can filter by ID.
+		var historyClean []gemini.MessageHistory
+		for _, m := range previousMsgs {
+			if m.ID == userMsgID {
+				continue // Skip the message we just sent, as we pass it as 'content'
+			}
+			role := "Buyer"
+			if m.SenderID == item.UserID {
+				role = "Seller"
+			}
+			historyClean = append(historyClean, gemini.MessageHistory{
+				Sender:  role,
+				Content: m.Content,
+			})
+		}
+
 		// Call Vertex AI
 		ctx := context.Background()
 		if u.geminiClient != nil {
 			fmt.Println("DEBUG: Calling Gemini Client...")
-			decision, reasoning, aiContent, err := u.geminiClient.GenerateNegotiationResponse(ctx, item.Price, effectiveMAP, item.ViewsCount, content, daysListed)
+			negotiationResp, err := u.geminiClient.GenerateNegotiationResponse(ctx, item.Price, effectiveMAP, item.ViewsCount, content, daysListed, historyClean)
 			if err == nil {
-				fmt.Println("DEBUG: Gemini Response Received! Decision:", decision)
+				fmt.Printf("DEBUG: Gemini Response Received! Decision: %s, Intent: %s\n", negotiationResp.Decision, negotiationResp.Intent)
 				// Create AI Message
 				aiMsgID := ulid.MustNew(ulid.Now(), ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)).String()
 				aiMsg := &model.Message{
 					ID:           aiMsgID,
 					ItemID:       itemID,
 					SenderID:     item.UserID, // Set sender as Seller (AI Agent)
-					Content:      aiContent,
+					Content:      negotiationResp.ResponseContent,
 					IsAIResponse: true, 
                     IsApproved:   false, // Default unapproved
 					CreatedAt:    time.Now(),
@@ -193,9 +237,10 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 					ID:            logID,
 					ItemID:        itemID,
 					UserID:        senderID, // Buyer
-					ProposedPrice: 0,        // Need specific pricing extraction logic in future
-					AIDecision:    decision,
-					AIReasoning:   reasoning,
+					ProposedPrice: negotiationResp.DetectedPrice,
+					AIDecision:    negotiationResp.Decision,
+                    CounterPrice:  negotiationResp.CounterPrice,
+					AIReasoning:   negotiationResp.Reasoning,
 					LogTime:       time.Now(),
 				}
 				u.msgRepo.CreateNegotiationLog(negotiationLog)
