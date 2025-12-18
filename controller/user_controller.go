@@ -15,6 +15,7 @@ func NewUserController(usecase *usecase.UserUsecase) *UserController {
 }
 
 type RegisterRequest struct {
+	ID    string `json:"id"` // Optional: Firebase UID
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
@@ -41,7 +42,7 @@ func (c *UserController) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := c.usecase.RegisterUser(req.Name, req.Email)
+	user, err := c.usecase.RegisterUser(req.ID, req.Name, req.Email)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
