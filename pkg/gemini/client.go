@@ -77,7 +77,12 @@ Your goal is to negotiate with a **Buyer** to sell the item at the highest possi
    - "QUESTION": User asks about size, condition, shipping. -> Action: ANSWER (Be helpful, do not negotiate price yet).
    - "NEGOTIATION": User proposes a lower price. -> Action: Decide based on price.
 
-2. **Decide Action**:
+2. **Extract Price (CRITICAL)**:
+   - Identify the price mentioned by the buyer or agreed upon. Set this to "detected_price" (Integer).
+   - IF AGREEMENT: Set "detected_price" to the price the user just agreed to (from history or current message).
+   - IF NEGOTIATION: Set "detected_price" to the user's proposed price.
+
+3. **Decide Action**:
    - IF Intent is NEGOTIATION:
      - If Detected Price < Minimum Limit: **REJECT** (politely decline) or **COUNTER** (propose a price between DETECTED and LIMIT).
      - If Detected Price >= Minimum Limit: **ACCEPT** (happily agree) or **COUNTER** (try to push a bit higher if Popularity is High).
@@ -86,16 +91,17 @@ Your goal is to negotiate with a **Buyer** to sell the item at the highest possi
    - IF Intent is QUESTION:
      - **ANSWER** (Polite response).
 
-3. **Output Format**:
+4. **Output Format**:
    - Respond in **JSON** only.
    - "response_content" must be in **Japanese** (Polite Keigo).
+   - "reasoning" must be in **Japanese**.
 
 JSON Schema:
 {
   "intent": "NEGOTIATION" | "AGREEMENT" | "QUESTION",
   "decision": "ACCEPT" | "REJECT" | "COUNTER" | "ANSWER",
-  "detected_price": 0, // Integer, 0 if not found
-  "counter_price": 0,  // Integer, your proposed price, 0 if not applicable
+  "detected_price": 0, // Integer. The price the BUYER proposed or agreed to.
+  "counter_price": 0,  // Integer. YOUR proposed price (if COUNTER).
   "reasoning": "Reasoning for the seller (in Japanese)...",
   "response_content": "Message to the buyer (in Japanese)..."
 }
@@ -121,10 +127,17 @@ JSON Schema:
 	}
 
 	var parsedResp NegotiationResponse
+    // Try unmarshaling as single object
 	if err := json.Unmarshal([]byte(txt), &parsedResp); err != nil {
-		// Log raw text for debugging if needed
-		fmt.Printf("Raw Gemini Response: %s\n", txt)
-		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+        // Fallback: Try unmarshaling as array (unexpected but observed behavior)
+        var parsedArr []NegotiationResponse
+        if err2 := json.Unmarshal([]byte(txt), &parsedArr); err2 == nil && len(parsedArr) > 0 {
+            parsedResp = parsedArr[0]
+        } else {
+            // Log raw text and original error
+            fmt.Printf("Raw Gemini Response: %s\n", txt)
+            return nil, fmt.Errorf("failed to parse JSON: %v (also failed array parse: %v)", err, err2)
+        }
 	}
 
 	return &parsedResp, nil

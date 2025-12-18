@@ -101,7 +101,7 @@ func (r *ItemRepository) Insert(item *model.Item) error {
 }
 
 func (r *ItemRepository) Update(item *model.Item) error {
-	query := `UPDATE items SET name=?, price=?, description=?, user_id=?, buyer_id=?, status=? WHERE id=?`
-	_, err := r.db.Exec(query, item.Name, item.Price, item.Description, item.UserID, item.BuyerID, item.Status, item.ID)
+	query := `UPDATE items SET name=?, price=?, description=?, user_id=?, buyer_id=?, status=?, ai_negotiation_enabled=?, min_price=?, image_url=? WHERE id=?`
+	_, err := r.db.Exec(query, item.Name, item.Price, item.Description, item.UserID, item.BuyerID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL, item.ID)
 	return err
 }

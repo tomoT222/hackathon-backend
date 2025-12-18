@@ -207,6 +207,26 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
         }
         w.WriteHeader(http.StatusOK)
         w.Write([]byte(`{"status": "deleted"}`))
+    case "PUT":
+        // Update Item
+        var req CreateItemRequest // Reuse structure
+        if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+        }
+        item, err := c.usecase.UpdateItem(id, req.UserID, req.Name, req.Price, req.Description, req.AINegotiationEnabled, req.MinPrice, req.ImageURL)
+        if err != nil {
+             status := http.StatusInternalServerError
+             if err.Error() == "unauthorized" {
+                 status = http.StatusUnauthorized
+             } else if err.Error() == "item not found" {
+                 status = http.StatusNotFound
+             }
+             http.Error(w, err.Error(), status)
+             return
+        }
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(item)
     default:
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
     }
@@ -242,13 +262,31 @@ func (c *ItemController) HandleMessages(w http.ResponseWriter, r *http.Request) 
              return
          }
 
-        err := c.usecase.ApproveMessage(msgID, req.UserID)
+        err := c.usecase.ApproveMessage(msgID)
         if err != nil {
              http.Error(w, err.Error(), http.StatusInternalServerError)
              return
         }
         w.WriteHeader(http.StatusOK)
         w.Write([]byte(`{"status": "approved"}`))
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte(`{"status": "approved"}`))
+    } else if action == "reject" && r.Method == "PUT" {
+        var req struct {
+            UserID string `json:"user_id"`
+        }
+         if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+             http.Error(w, err.Error(), http.StatusBadRequest)
+             return
+         }
+
+        err := c.usecase.RejectMessage(msgID, req.UserID)
+        if err != nil {
+             http.Error(w, err.Error(), http.StatusInternalServerError)
+             return
+        }
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte(`{"status": "rejected"}`))
     } else {
         http.Error(w, "Not found or method not allowed", http.StatusNotFound)
     }

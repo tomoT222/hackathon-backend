@@ -28,10 +28,11 @@ CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(128) PRIMARY KEY COMMENT 'ULID',
     item_id VARCHAR(128) NOT NULL,
     sender_id VARCHAR(128) NOT NULL,
-    content TEXT,
+    content TEXT NOT NULL,
     is_ai_response BOOLEAN DEFAULT FALSE,
     is_approved BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    suggested_price INT DEFAULT NULL COMMENT 'Price suggested by AI or Buyer',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id),
     FOREIGN KEY (sender_id) REFERENCES users(id)
 );
