@@ -40,7 +40,7 @@ func (u *ItemUsecase) GetItemByID(id string) (*model.Item, error) {
 	return u.itemRepo.GetByID(id)
 }
 
-func (u *ItemUsecase) CreateItem(name string, price int, description string, userID string, aiEnabled bool, minPrice *int) (*model.Item, error) {
+func (u *ItemUsecase) CreateItem(name string, price int, description string, userID string, aiEnabled bool, minPrice *int, imageURL string) (*model.Item, error) {
 	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
 	id := ulid.MustNew(ulid.Now(), entropy).String()
 
@@ -53,6 +53,7 @@ func (u *ItemUsecase) CreateItem(name string, price int, description string, use
 		Status:               "on_sale",
 		AINegotiationEnabled: aiEnabled,
 		MinPrice:             minPrice,
+		ImageURL:             imageURL,
 	}
 
 	if err := u.itemRepo.Insert(item); err != nil {

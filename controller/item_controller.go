@@ -36,6 +36,7 @@ type CreateItemRequest struct {
 	UserID               string `json:"user_id"`
 	AINegotiationEnabled bool   `json:"ai_negotiation_enabled"`
 	MinPrice             *int   `json:"min_price"`
+	ImageURL             string `json:"image_url"`
 }
 
 func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +68,7 @@ func (c *ItemController) HandleItems(w http.ResponseWriter, r *http.Request) {
              http.Error(w, err.Error(), http.StatusBadRequest)
              return
         }
-        item, err := c.usecase.CreateItem(req.Name, req.Price, req.Description, req.UserID, req.AINegotiationEnabled, req.MinPrice)
+        item, err := c.usecase.CreateItem(req.Name, req.Price, req.Description, req.UserID, req.AINegotiationEnabled, req.MinPrice, req.ImageURL)
         if err != nil {
              http.Error(w, err.Error(), http.StatusInternalServerError)
              return

@@ -9,9 +9,10 @@ type Item struct {
 	Description          string    `json:"description"`
 	UserID               string    `json:"user_id"`
 	BuyerID              *string   `json:"buyer_id,omitempty"` // Nullable
-	Status               string    `json:"status"`
+	Status               string `json:"status"` // on_sale, sold
 	ViewsCount           int       `json:"views_count"`
 	AINegotiationEnabled bool      `json:"ai_negotiation_enabled"`
-	MinPrice             *int      `json:"min_price,omitempty"` // Nullable
+	MinPrice             *int   `json:"min_price"`
+    ImageURL             string `json:"image_url"`
 	CreatedAt            time.Time `json:"created_at"`
 }

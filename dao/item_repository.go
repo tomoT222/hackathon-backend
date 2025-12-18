@@ -14,10 +14,10 @@ func NewItemRepository(db *sql.DB) *ItemRepository {
 }
 
 func (r *ItemRepository) GetAll() ([]model.Item, error) {
-	// 修正: buyer_idとstatusも取得するように変更
-	// schema.sql: id, name, price, description, user_id, buyer_id, status
+	// 修正: buyer_idとstatus, image_urlも取得するように変更
+	// schema.sql: id, name, price, description, user_id, buyer_id, status, image_url
 	query := `
-		SELECT id, name, price, description, user_id, buyer_id, status 
+		SELECT id, name, price, description, user_id, buyer_id, status, image_url
 		FROM items 
 		ORDER BY created_at DESC
 	`
@@ -31,13 +31,17 @@ func (r *ItemRepository) GetAll() ([]model.Item, error) {
 	for rows.Next() {
 		var item model.Item
 		var buyerID sql.NullString
+		var imageURL sql.NullString
 		
-		if err := rows.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &imageURL); err != nil {
 			return nil, err
 		}
 		
 		if buyerID.Valid {
 			item.BuyerID = &buyerID.String
+		}
+		if imageURL.Valid {
+			item.ImageURL = imageURL.String
 		}
 		
 		items = append(items, item)
@@ -58,7 +62,7 @@ func (r *ItemRepository) IncrementViewCount(id string) error {
 func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	// Select with new columns
 	query := `
-		SELECT id, name, price, description, user_id, buyer_id, status, views_count, ai_negotiation_enabled, min_price, created_at 
+		SELECT id, name, price, description, user_id, buyer_id, status, views_count, ai_negotiation_enabled, min_price, created_at, image_url 
 		FROM items 
 		WHERE id = ?
 	`
@@ -67,8 +71,9 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	var item model.Item
 	var buyerID sql.NullString
 	var minPrice sql.NullInt64
+	var imageURL sql.NullString
 	
-	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &item.ViewsCount, &item.AINegotiationEnabled, &minPrice, &item.CreatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &item.ViewsCount, &item.AINegotiationEnabled, &minPrice, &item.CreatedAt, &imageURL); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Not found
 		}
@@ -82,13 +87,16 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 		val := int(minPrice.Int64)
 		item.MinPrice = &val
 	}
+	if imageURL.Valid {
+		item.ImageURL = imageURL.String
+	}
 	
 	return &item, nil
 }
 
 func (r *ItemRepository) Insert(item *model.Item) error {
-	query := `INSERT INTO items (id, name, price, description, user_id, status, ai_negotiation_enabled, min_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status, item.AINegotiationEnabled, item.MinPrice)
+	query := `INSERT INTO items (id, name, price, description, user_id, status, ai_negotiation_enabled, min_price, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL)
 	return err
 }
 
