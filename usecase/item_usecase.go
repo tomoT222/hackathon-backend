@@ -277,10 +277,6 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 				// Create Log
 				logID := ulid.MustNew(ulid.Now(), ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)).String()
                 
-                // INJECT DEBUG INFO into Reasoning for Frontend Visibility
-                debugInfo := fmt.Sprintf("\n[DEBUG] Intent=%s, Dec=%s, DetP=%d, CntP=%d", 
-                    negotiationResp.Intent, negotiationResp.Decision, negotiationResp.DetectedPrice, negotiationResp.CounterPrice)
-                
 				negotiationLog := &model.NegotiationLog{
 					ID:            logID,
 					ItemID:        itemID,
@@ -288,7 +284,7 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 					ProposedPrice: negotiationResp.DetectedPrice,
 					AIDecision:    negotiationResp.Decision,
                     CounterPrice:  negotiationResp.CounterPrice,
-					AIReasoning:   negotiationResp.Reasoning + debugInfo,
+					AIReasoning:   negotiationResp.Reasoning,
 					LogTime:       time.Now(),
 				}
 				u.msgRepo.CreateNegotiationLog(negotiationLog)
