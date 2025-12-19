@@ -14,5 +14,6 @@ type Item struct {
 	AINegotiationEnabled bool      `json:"ai_negotiation_enabled"`
 	MinPrice             *int   `json:"min_price"`
     ImageURL             string `json:"image_url"`
+    InitialPrice         int    `json:"initial_price"`
 	CreatedAt            time.Time `json:"created_at"`
 }

@@ -40,41 +40,68 @@ type NegotiationResponse struct {
 	ResponseContent string `json:"response_content"`
 }
 
-func (c *Client) GenerateNegotiationResponse(ctx context.Context, itemPrice int, minPrice int, views int, currentContent string, durationDays int, history []MessageHistory) (*NegotiationResponse, error) {
+func (c *Client) GenerateNegotiationResponse(ctx context.Context, itemPrice int, initialPrice int, minPrice int, views int, currentContent string, durationDays int, history []MessageHistory, retryInstruction string, previousDraftContent string, previousDraftReasoning string, itemDescription string) (*NegotiationResponse, error) {
 	// 1. Construct Prompt
-	viewsContext := "Normal"
-	if views > 100 { viewsContext = "High (Popular)" }
-	if views < 10 { viewsContext = "Low (Unpopular)" }
 	
-	urgencyContext := "Fresh Listing"
-	if durationDays > 14 { urgencyContext = "Old Listing (Urgent to sell)" }
-
 	// Format History
 	historyText := ""
 	for _, msg := range history {
 		historyText += fmt.Sprintf("- %s: %s\n", msg.Sender, msg.Content)
 	}
 
+    retrySection := ""
+    if retryInstruction != "" {
+        retrySection = fmt.Sprintf(`
+**RETRY INSTRUCTION (Important):**
+The seller rejected your previous draft.
+- **Your Previous Draft**: "%s"
+- **Your Previous Reasoning**: "%s"
+- **Seller's Feedback/Instruction**: "%s"
+
+You must generate a NEW response that addresses the seller's feedback.
+`, previousDraftContent, previousDraftReasoning, retryInstruction)
+    }
+
+    // DEBUG LOG: Show Initial and Current Prices
+    fmt.Printf("\n[DEBUG] AI Context - Initial Price: ¥%d, Current Price: ¥%d, Min Price: ¥%d\n", initialPrice, itemPrice, minPrice)
+
 	promptText := fmt.Sprintf(`
 You are "Smart-Nego", a highly intelligent and polite AI agent acting as the **Seller** on a Japanese Flea Market App.
 Your goal is to negotiate with a **Buyer** to sell the item at the highest possible price, while being polite and helpful.
 
-**Item Context:**
-- Listing Price: ¥%d
-- Minimum Acceptable Price (Limit): ¥%d (You MUST NOT accept below this)
-- Market Popularity: %s (Views: %d)
-- Listing Urgency: %s (Days Listed: %d)
+**Strategic Persona:**
+- You are NOT a pushy bot, but you are a **tenacious seller**.
+- **Discount Strategy**:
+  - Do NOT simply "split the difference" or meet halfway.
+  - Base your concession strictly on **Market Context** (Views & Days Listed).
+  - **High Views**: Demand is high. Be very stingy. Offer NO discount or very tiny discount.
+  - **Low Views / Long Listing**: You can be more flexible to ensure a sale, but still try to keep the price as high as possible above the Minimum Limit.
+- **Consistency**: Check the Conversation History carefully. If you have previously offered a lower price (e.g. 9500), do NOT propose a higher price (e.g. 9700) subsequently. You must honor your previous offers unless the situation has drastically changed.
+- **Minimum Acceptable Price (Limit)**: This is your absolute floor. Never go below this.
+- **Initial Listing Price**: This was the starting price.
+- **Current Listing Price**: This is the current price. Use this as your reference for the *current* deal, but remember the Initial Price to gauge how much has already been discounted.
+
+**Item Context (Raw Data):**
+- Initial Listing Price: ¥%d
+- Current Listing Price: ¥%d
+- Minimum Acceptable Price (Limit): ¥%d
+- Views: %d (High views = Strong leverage for Seller)
+- Days Listed: %d (Long days = Weak leverage for Seller)
+- **Item Description**: "%s"
 
 **Conversation History:**
 %s
 
 **Current Buyer Message:**
 "%s"
-
+%s
 **Instructions:**
 1. **Analyze Intent**: Determine the buyer's intent.
-   - "AGREEMENT": User says "I'll buy it", "OK", "Please change price". -> Action: ACCEPT (or acknowledge).
-   - "QUESTION": User asks about size, condition, shipping. -> Action: ANSWER (Be helpful, do not negotiate price yet).
+   - "AGREEMENT": User accepts your price offer, says "I'll buy it", or "OK". -> Action: ACCEPT (or acknowledge).
+   - "QUESTION": User asks about size, condition, shipping, etc. -> Action: ANSWER.
+     - **CRITICAL**: Answer ONLY based on the **Item Description** provided above.
+     - If the information is NOT in the description, say "I don't know" or "Please check the photos" politely. Do NOT hallucinate.
+     - Do not negotiate price in the ANSWER phase unless asked.
    - "NEGOTIATION": User proposes a lower price. -> Action: Decide based on price.
 
 2. **Extract Price (CRITICAL)**:
@@ -84,17 +111,22 @@ Your goal is to negotiate with a **Buyer** to sell the item at the highest possi
 
 3. **Decide Action**:
    - IF Intent is NEGOTIATION:
-     - If Detected Price < Minimum Limit: **REJECT** (politely decline) or **COUNTER** (propose a price between DETECTED and LIMIT).
-     - If Detected Price >= Minimum Limit: **ACCEPT** (happily agree) or **COUNTER** (try to push a bit higher if Popularity is High).
+     - If Detected Price < Minimum Limit: **REJECT** using polite language. You cannot accept.
+     - If Detected Price >= Minimum Limit:
+       - **Check History for Consistency**: Ensure your counter-offer is not higher than your previous offers in history.
+       - **Compare with Current Price**:
+         - If Views are High: **COUNTER** with a price very close to Current Price. Explain that the item is popular.
+         - If Views are Low AND Days Listed is Long: **ACCEPT** or **COUNTER** slightly lower to close the deal.
+         - Otherwise: **COUNTER** with a modest discount from **Current Listing Price**. Do NOT drop straight to the buyer's price unless it matches your target.
    - IF Intent is AGREEMENT:
      - **ACCEPT**.
    - IF Intent is QUESTION:
-     - **ANSWER** (Polite response).
+     - **ANSWER** (Polite response based on Description).
 
 4. **Output Format**:
    - Respond in **JSON** only.
    - "response_content" must be in **Japanese** (Polite Keigo).
-   - "reasoning" must be in **Japanese**.
+   - "reasoning" must be in **Japanese** (Explain WHY you chose this price/action to the seller).
 
 JSON Schema:
 {
@@ -105,7 +137,7 @@ JSON Schema:
   "reasoning": "Reasoning for the seller (in Japanese)...",
   "response_content": "Message to the buyer (in Japanese)..."
 }
-`, itemPrice, minPrice, viewsContext, views, urgencyContext, durationDays, historyText, currentContent)
+`, initialPrice, itemPrice, minPrice, views, durationDays, itemDescription, historyText, currentContent, retrySection)
 
 	// 2. Call Gemini API
 	resp, err := c.model.GenerateContent(ctx, genai.Text(promptText))
@@ -126,17 +158,24 @@ JSON Schema:
 		return nil, fmt.Errorf("unexpected response type")
 	}
 
+	// Sanitize Markdown code blocks
+    cleanTxt := txt
+    if len(cleanTxt) > 7 && cleanTxt[:7] == "```json" {
+         cleanTxt = cleanTxt[7:]
+    }
+    if len(cleanTxt) > 3 && cleanTxt[:3] == "```" {
+         cleanTxt = cleanTxt[3:]
+    }
+    
 	var parsedResp NegotiationResponse
-    // Try unmarshaling as single object
 	if err := json.Unmarshal([]byte(txt), &parsedResp); err != nil {
-        // Fallback: Try unmarshaling as array (unexpected but observed behavior)
+        // Validation fallback
         var parsedArr []NegotiationResponse
         if err2 := json.Unmarshal([]byte(txt), &parsedArr); err2 == nil && len(parsedArr) > 0 {
             parsedResp = parsedArr[0]
         } else {
-            // Log raw text and original error
             fmt.Printf("Raw Gemini Response: %s\n", txt)
-            return nil, fmt.Errorf("failed to parse JSON: %v (also failed array parse: %v)", err, err2)
+            return nil, fmt.Errorf("failed to parse JSON: %v", err)
         }
 	}
 

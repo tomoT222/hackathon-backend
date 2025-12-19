@@ -138,6 +138,32 @@ func (c *ItemController) HandleItemDetail(w http.ResponseWriter, r *http.Request
 
     // Check if it is a messages request
     if len(parts) >= 4 && parts[3] == "messages" {
+        // Handle Retry: /items/{id}/messages/retry
+        if len(parts) >= 5 && parts[4] == "retry" {
+            if r.Method == "POST" {
+                 var req struct {
+                     UserID      string `json:"user_id"`
+                     Instruction string `json:"instruction"`
+                 }
+                 if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+                     http.Error(w, err.Error(), http.StatusBadRequest)
+                     return
+                 }
+                 
+                 aiMsg, err := c.usecase.RegenerateAIMessage(id, req.UserID, req.Instruction)
+                 if err != nil {
+                      http.Error(w, err.Error(), http.StatusInternalServerError)
+                      return
+                 }
+                 w.Header().Set("Content-Type", "application/json")
+                 json.NewEncoder(w).Encode(aiMsg)
+                 return
+            } else {
+                 http.Error(w, "Method not allowed for retry", http.StatusMethodNotAllowed)
+                 return
+            }
+        }
+
         if r.Method == "POST" {
             var req SendMessageRequest
             if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

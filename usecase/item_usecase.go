@@ -55,6 +55,7 @@ func (u *ItemUsecase) CreateItem(name string, price int, description string, use
 		AINegotiationEnabled: aiEnabled,
 		MinPrice:             minPrice,
 		ImageURL:             imageURL,
+        InitialPrice:         price, // Set initial price
 	}
 
 	if err := u.itemRepo.Insert(item); err != nil {
@@ -144,6 +145,9 @@ func (u *ItemUsecase) UpdateItem(itemID string, userID string, name string, pric
     }
     // If we want to allow clearing image, we need better logic, but for now assuming always passing current or new.
     item.ImageURL = imageURL
+    
+    // Reset InitialPrice to new Price (User explicitly changed it)
+    item.InitialPrice = price
 
     if err := u.itemRepo.Update(item); err != nil {
         return nil, err
@@ -247,7 +251,7 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 		ctx := context.Background()
 		if u.geminiClient != nil {
 			fmt.Println("DEBUG: Calling Gemini Client...")
-			negotiationResp, err := u.geminiClient.GenerateNegotiationResponse(ctx, item.Price, effectiveMAP, item.ViewsCount, content, daysListed, historyClean)
+			negotiationResp, err := u.geminiClient.GenerateNegotiationResponse(ctx, item.Price, item.InitialPrice, effectiveMAP, item.ViewsCount, content, daysListed, historyClean, "", "", "", item.Description)
 			if err == nil {
 				fmt.Printf("DEBUG: Gemini Response Received! Decision: %s, Intent: %s\n", negotiationResp.Decision, negotiationResp.Intent)
 				// Create AI Message
@@ -259,17 +263,17 @@ func (u *ItemUsecase) SendMessage(itemID string, senderID string, content string
 					Content:      negotiationResp.ResponseContent,
 					IsAIResponse: true, 
                     IsApproved:   false, // Default unapproved
-					CreatedAt:    time.Now(),
+					CreatedAt:    time.Now().Add(time.Second), // Ensure timestamp is distinct from UserMsg if same second
 				}
 
                 // Logic to set SuggestedPrice based on Gemini Response
                 decisionLower := strings.ToLower(negotiationResp.Decision)
-                if negotiationResp.CounterPrice > 0 {
-                    // If AI proposes a new price (Counter), use it regardless of Decision string (even if "REJECT")
-                    aiMsg.SuggestedPrice = &negotiationResp.CounterPrice
-                } else if (decisionLower == "agreement" || decisionLower == "accept") && negotiationResp.DetectedPrice > 0 {
-                    // If AI accepts user's offer, use the Detected Price from User
+                if (decisionLower == "agreement" || decisionLower == "accept") && negotiationResp.DetectedPrice > 0 {
                     aiMsg.SuggestedPrice = &negotiationResp.DetectedPrice
+                } else if negotiationResp.CounterPrice > 0 {
+                    // It is a COUNTER. Update SuggestedPrice so approval updates the Item Price.
+                    // This allows "Current Price" to track negotiation progress, while InitialPrice stays static.
+                     aiMsg.SuggestedPrice = &negotiationResp.CounterPrice
                 }
 
 				u.msgRepo.CreateMessage(aiMsg)
@@ -352,9 +356,187 @@ func (u *ItemUsecase) ApproveMessage(messageID string) error {
     return u.msgRepo.ApproveMessage(messageID)
 }
 
+func (u *ItemUsecase) RegenerateAIMessage(itemID string, userID string, instruction string) (*model.Message, error) {
+    // 1. Verify Ownership / Authorization
+    item, err := u.itemRepo.GetByID(itemID)
+    if err != nil {
+        return nil, err
+    }
+    if item == nil {
+        return nil, errors.New("item not found")
+    }
+    if item.UserID != userID {
+        return nil, errors.New("unauthorized: only seller can regenerate AI response")
+    }
+    if !item.AINegotiationEnabled {
+        return nil, errors.New("AI negotiation not enabled")
+    }
+
+    // 2. Find Context (Last Buyer Message)
+    // We need to find the message the AI *should* be responding to.
+    // This is typically the last message from a Buyer (SenderID != Owner).
+    allMsgs, err := u.msgRepo.GetMessagesByItemID(itemID)
+    if err != nil {
+        return nil, err
+    }
+
+    var lastBuyerMsg *model.Message
+    var historyClean []gemini.MessageHistory
+    
+    // Scan backwards or forwards?
+    // We want the whole history for context, but we need to identify the specific trigger message.
+    // Also, we should probably DELETE the existing Unapproved AI message if it exists at the end.
+    
+    var lastAIUnapprovedMsgID string
+
+    for _, m := range allMsgs {
+        role := "Buyer"
+        if m.SenderID == item.UserID {
+            role = "Seller"
+            // If this is the last message and it's unapproved AI, track it to delete
+            if m.IsAIResponse && !m.IsApproved {
+                lastAIUnapprovedMsgID = m.ID
+            }
+        } else {
+             // It's a buyer message. Update lastBuyerMsg (so eventually we have the very last one)
+             lastBuyerMsg = &m
+        }
+
+        historyClean = append(historyClean, gemini.MessageHistory{
+            Sender:  role,
+            Content: m.Content,
+        })
+    }
+
+    if lastBuyerMsg == nil {
+        return nil, errors.New("no buyer message found to respond to")
+    }
+
+    // Remove the lastAIUnapprovedMsg from history if we added it (it shouldn't be part of history for regeneration)
+    if lastAIUnapprovedMsgID != "" {
+        // Find index and remove? Or just rebuild history without it?
+        // Rebuilding is safer.
+        historyClean = nil
+        for _, m := range allMsgs {
+            if m.ID == lastAIUnapprovedMsgID {
+                continue
+            }
+             role := "Buyer"
+            if m.SenderID == item.UserID {
+                role = "Seller"
+            }
+            historyClean = append(historyClean, gemini.MessageHistory{
+                Sender:  role,
+                Content: m.Content,
+            })
+        }
+    }
+    
+    // Remove the "Current Message" (lastBuyerMsg) from history, because prompt takes it separately
+    // The loop above adds ALL messages.
+    // We need to pop the last occurrence of lastBuyerMsg content?
+    // Actually, simply: historyClean should exclude the *target* message ?
+    // In SendMessage, we had `history` (from DB) and `content` (from args). `content` wasn't in DB yet when we fetched `previousMsgs`?
+    // Wait, in SendMessage:
+    // 1. Save UserMsg
+    // 2. Fetch PreviousMsgs (includes UserMsg?) -> Yes usually.
+    // 3. Filter loop.
+    
+    // Here, we have everything in DB.
+    // Let's remove the *last* item from historyClean if it matches lastBuyerMsg.
+    // Actually, `historyClean` has everything. 
+    // We want: Prompt History = All EXCEPT Last Buyer Msg. Current Content = Last Buyer Msg.
+    // Let's just pop the last element? 
+    // It might be that the last element is the Unapproved AI message (which we skipped)
+    // So the last element of `historyClean` IS likely the Last Buyer Msg.
+    if len(historyClean) > 0 {
+        lastHistory := historyClean[len(historyClean)-1]
+        // Check if it matches lastBuyerMsg
+        if lastHistory.Content == lastBuyerMsg.Content && lastHistory.Sender == "Buyer" {
+             // Pop it
+             historyClean = historyClean[:len(historyClean)-1]
+        }
+    }
+
+    // 3. Delete Old AI Draft (Clean up)
+    if lastAIUnapprovedMsgID != "" {
+        _ = u.msgRepo.DeleteMessage(lastAIUnapprovedMsgID)
+    }
+
+    // 3.5 Extract Previous Draft Content & Reasoning for Retry Context
+    var prevContent, prevReasoning string
+    if lastAIUnapprovedMsgID != "" {
+        // We need to fetch the full message object before deletion, or just assume we have it if we stored it?
+        // We iterated `allMsgs`. `m` in loop was the message.
+        // We need to find the specific message object again.
+        for _, m := range allMsgs {
+            if m.ID == lastAIUnapprovedMsgID {
+                prevContent = m.Content
+                prevReasoning = m.AIReasoning
+                break
+            }
+        }
+    }
+
+    // 4. Call Gemini
+    effectiveMAP := int(float64(item.Price) * 0.75)
+    if item.MinPrice != nil {
+        effectiveMAP = *item.MinPrice
+    }
+    daysListed := int(time.Since(item.CreatedAt).Hours() / 24)
+
+    ctx := context.Background()
+    // Retry instruction injected here along with previous draft context
+    negotiationResp, err := u.geminiClient.GenerateNegotiationResponse(ctx, item.Price, item.InitialPrice, effectiveMAP, item.ViewsCount, lastBuyerMsg.Content, daysListed, historyClean, instruction, prevContent, prevReasoning, item.Description)
+    if err != nil {
+        return nil, err
+    }
+
+    // 5. Save New AI Message
+    aiMsgID := ulid.MustNew(ulid.Now(), ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)).String()
+    aiMsg := &model.Message{
+        ID:           aiMsgID,
+        ItemID:       itemID,
+        SenderID:     item.UserID,
+        Content:      negotiationResp.ResponseContent,
+        IsAIResponse: true,
+        IsApproved:   false,
+        CreatedAt:    time.Now().Add(time.Second), // Ensure distinctive timestamp
+    }
+    
+    // Price logic 
+    decisionLower := strings.ToLower(negotiationResp.Decision)
+    if (decisionLower == "agreement" || decisionLower == "accept") && negotiationResp.DetectedPrice > 0 {
+         aiMsg.SuggestedPrice = &negotiationResp.DetectedPrice
+    } else if negotiationResp.CounterPrice > 0 {
+         aiMsg.SuggestedPrice = &negotiationResp.CounterPrice
+    }
+
+    if err := u.msgRepo.CreateMessage(aiMsg); err != nil {
+        return nil, err
+    }
+
+    // Log (Append "RETRY" to decision or reasoning to track it?)
+    logID := ulid.MustNew(ulid.Now(), ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)).String()
+    negotiationLog := &model.NegotiationLog{
+        ID:            logID,
+        ItemID:        itemID,
+        UserID:        lastBuyerMsg.SenderID,
+        ProposedPrice: negotiationResp.DetectedPrice,
+        AIDecision:    negotiationResp.Decision + " (RETRY)",
+        CounterPrice:  negotiationResp.CounterPrice,
+        AIReasoning:   negotiationResp.Reasoning,
+        LogTime:       time.Now(),
+    }
+    u.msgRepo.CreateNegotiationLog(negotiationLog)
+
+    return aiMsg, nil
+}
+
 func (u *ItemUsecase) RejectMessage(messageID string, userID string) error {
     // Ideally verify ownership here too.
     // For MVP, trust the controller/caller or assuming ID match is sufficient safety for a hackathon.
     // Logic: Delete the message (draft).
     return u.msgRepo.DeleteMessage(messageID)
 }
+

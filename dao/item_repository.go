@@ -15,9 +15,9 @@ func NewItemRepository(db *sql.DB) *ItemRepository {
 
 func (r *ItemRepository) GetAll() ([]model.Item, error) {
 	// 修正: buyer_idとstatus, image_urlも取得するように変更
-	// schema.sql: id, name, price, description, user_id, buyer_id, status, image_url
+	// schema.sql: id, name, price, description, user_id, buyer_id, status, image_url, initial_price
 	query := `
-		SELECT id, name, price, description, user_id, buyer_id, status, image_url
+		SELECT id, name, price, description, user_id, buyer_id, status, image_url, initial_price
 		FROM items 
 		ORDER BY created_at DESC
 	`
@@ -33,7 +33,7 @@ func (r *ItemRepository) GetAll() ([]model.Item, error) {
 		var buyerID sql.NullString
 		var imageURL sql.NullString
 		
-		if err := rows.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &imageURL); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &imageURL, &item.InitialPrice); err != nil {
 			return nil, err
 		}
 		
@@ -62,7 +62,7 @@ func (r *ItemRepository) IncrementViewCount(id string) error {
 func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	// Select with new columns
 	query := `
-		SELECT id, name, price, description, user_id, buyer_id, status, views_count, ai_negotiation_enabled, min_price, created_at, image_url 
+		SELECT id, name, price, description, user_id, buyer_id, status, views_count, ai_negotiation_enabled, min_price, created_at, image_url, initial_price 
 		FROM items 
 		WHERE id = ?
 	`
@@ -73,7 +73,7 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 	var minPrice sql.NullInt64
 	var imageURL sql.NullString
 	
-	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &item.ViewsCount, &item.AINegotiationEnabled, &minPrice, &item.CreatedAt, &imageURL); err != nil {
+	if err := row.Scan(&item.ID, &item.Name, &item.Price, &item.Description, &item.UserID, &buyerID, &item.Status, &item.ViewsCount, &item.AINegotiationEnabled, &minPrice, &item.CreatedAt, &imageURL, &item.InitialPrice); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // Not found
 		}
@@ -95,13 +95,13 @@ func (r *ItemRepository) GetByID(id string) (*model.Item, error) {
 }
 
 func (r *ItemRepository) Insert(item *model.Item) error {
-	query := `INSERT INTO items (id, name, price, description, user_id, status, ai_negotiation_enabled, min_price, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL)
+	query := `INSERT INTO items (id, name, price, description, user_id, status, ai_negotiation_enabled, min_price, image_url, initial_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := r.db.Exec(query, item.ID, item.Name, item.Price, item.Description, item.UserID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL, item.InitialPrice)
 	return err
 }
 
 func (r *ItemRepository) Update(item *model.Item) error {
-	query := `UPDATE items SET name=?, price=?, description=?, user_id=?, buyer_id=?, status=?, ai_negotiation_enabled=?, min_price=?, image_url=? WHERE id=?`
-	_, err := r.db.Exec(query, item.Name, item.Price, item.Description, item.UserID, item.BuyerID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL, item.ID)
+	query := `UPDATE items SET name=?, price=?, description=?, user_id=?, buyer_id=?, status=?, ai_negotiation_enabled=?, min_price=?, image_url=?, initial_price=? WHERE id=?`
+	_, err := r.db.Exec(query, item.Name, item.Price, item.Description, item.UserID, item.BuyerID, item.Status, item.AINegotiationEnabled, item.MinPrice, item.ImageURL, item.InitialPrice, item.ID)
 	return err
 }
