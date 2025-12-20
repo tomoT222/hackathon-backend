@@ -19,6 +19,7 @@ func (r *ItemRepository) GetAll() ([]model.Item, error) {
 	query := `
 		SELECT id, name, price, description, user_id, buyer_id, status, image_url, initial_price
 		FROM items 
+		WHERE status != 'deleted'
 		ORDER BY created_at DESC
 	`
 	rows, err := r.db.Query(query)
