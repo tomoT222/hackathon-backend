@@ -20,9 +20,10 @@ func (r *MessageRepository) CreateMessage(msg *model.Message) error {
 }
 
 func (r *MessageRepository) GetMessagesByItemID(itemID string) ([]model.Message, error) {
-	query := `SELECT m.id, m.item_id, m.sender_id, m.content, m.is_ai_response, m.is_approved, m.suggested_price, m.created_at, l.ai_reasoning 
+	query := `SELECT m.id, m.item_id, m.sender_id, u.name as sender_name, m.content, m.is_ai_response, m.is_approved, m.suggested_price, m.created_at, l.ai_reasoning 
               FROM messages m 
               LEFT JOIN negotiation_logs l ON m.item_id = l.item_id AND ABS(TIMESTAMPDIFF(SECOND, m.created_at, l.log_time)) < 2 AND m.is_ai_response = TRUE
+              LEFT JOIN users u ON m.sender_id = u.id
               WHERE m.item_id = ? 
               ORDER BY m.created_at ASC`
               
@@ -37,9 +38,13 @@ func (r *MessageRepository) GetMessagesByItemID(itemID string) ([]model.Message,
 		var msg model.Message
         var reasoning sql.NullString
         var suggestedPrice sql.NullInt64
-		if err := rows.Scan(&msg.ID, &msg.ItemID, &msg.SenderID, &msg.Content, &msg.IsAIResponse, &msg.IsApproved, &suggestedPrice, &msg.CreatedAt, &reasoning); err != nil {
+        var senderName sql.NullString
+		if err := rows.Scan(&msg.ID, &msg.ItemID, &msg.SenderID, &senderName, &msg.Content, &msg.IsAIResponse, &msg.IsApproved, &suggestedPrice, &msg.CreatedAt, &reasoning); err != nil {
 			return nil, err
 		}
+        if senderName.Valid {
+            msg.SenderName = senderName.String
+        }
         if reasoning.Valid {
             msg.AIReasoning = reasoning.String
         }

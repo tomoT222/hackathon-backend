@@ -6,6 +6,7 @@ type Message struct {
 	ID             string    `json:"id"`
 	ItemID         string    `json:"item_id"`
 	SenderID       string    `json:"sender_id"`
+	SenderName     string    `json:"sender_name"`
 	Content        string    `json:"content"`
 	IsAIResponse   bool      `json:"is_ai_response"`
 	IsApproved     bool      `json:"is_approved"`
